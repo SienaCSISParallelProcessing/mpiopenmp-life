@@ -12,8 +12,8 @@
      (or files, when OUTPUT_ALL) with basename as defined in USE_FILE
 */
 
-#define OUTPUT_END
-// #define USE_FILE "lifeworld"
+// #define OUTPUT_END
+//  #define USE_FILE "lifeworld"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
   int i, j, neigh_count;
   long live_count, birth_count, death_count;
   long global_live, global_birth, global_death;
-  int numprocs, mypid;
+  int numprocs, mypid, numthreads;
   int msgcount;
   MPI_Request requests[4];
   MPI_Status status[4];
@@ -78,12 +78,21 @@ int main(int argc, char *argv[])
     grid[1][i] = (int *)malloc((gridsize + 2) * sizeof(int));
 
   /* initialize the grids (incl boundary buffer all 0's) */
+#pragma omp parallel private(i, j) shared(grid, gridsize, myrows)
+{
+  #pragma omp single
+  {
+    numthreads = omp_get_num_threads();
+    printf("Proc %d: Using %d threads\n", mypid, numthreads);
+  }
+#pragma omp for 
   for (i = 0; i <= myrows + 1; i++)
     for (j = 0; j <= gridsize + 1; j++)
     {
       grid[0][i][j] = 0;
       grid[1][i][j] = 0;
     }
+  }
 
   /* start current grid as 0 */
   curr = 0;
@@ -92,6 +101,7 @@ int main(int argc, char *argv[])
   /* initialize the current grid based on the desired percentage of
      living cells specified on the command line */
   live_count = 0;
+#pragma omp parallel for private(i, j) shared(grid, gridsize, curr, prev, myrows) reduction(+ : live_count)
   for (i = 1; i <= myrows; i++)
     for (j = 1; j <= gridsize; j++)
     {
@@ -191,7 +201,7 @@ int main(int argc, char *argv[])
     death_count = 0;
 
     /* visit each grid cell but create our team of threads to do it */
-#pragma omp parallel for private(i, j) shared(grid, gridsize, curr, prev) reduction(+ : live_count) reduction(+ : birth_count) reduction(+ : death_count)
+#pragma omp parallel for private(i, j) shared(grid, gridsize, myrows, curr, prev) reduction(+ : live_count) reduction(+ : birth_count) reduction(+ : death_count)
     for (i = 1; i <= myrows; i++)
       for (j = 1; j <= gridsize; j++)
       {
