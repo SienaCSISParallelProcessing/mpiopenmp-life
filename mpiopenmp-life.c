@@ -16,10 +16,20 @@
 //  #define USE_FILE "lifeworld"
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <mpi.h>
 #include <omp.h>
 #include <time.h>
+
+/* Use the drand48 recurrence with caller-owned state; erand48 can also
+   access shared library state on some platforms. */
+static double next_random(uint64_t *state)
+{
+  *state = (*state * UINT64_C(0x5deece66d) + UINT64_C(0xb)) &
+           UINT64_C(0xffffffffffff);
+  return *state * (1.0 / 281474976710656.0);
+}
 
 int main(int argc, char *argv[])
 {
@@ -27,7 +37,7 @@ int main(int argc, char *argv[])
   double init_pct;
   int num_iters, iter;
   int **grid[2], curr, prev;
-  int i, j, neigh_count;
+  int i, j;
   long live_count, birth_count, death_count;
   long global_live, global_birth, global_death;
   int numprocs, mypid, numthreads;
@@ -37,6 +47,7 @@ int main(int argc, char *argv[])
   FILE *fp;
   int proc_turn;
   double start_time;
+  uint32_t random_seed;
 
 #ifdef USE_FILE
   char filename[FILENAME_MAX];
@@ -53,7 +64,7 @@ int main(int argc, char *argv[])
   MPI_Comm_rank(MPI_COMM_WORLD, &mypid);
   MPI_Comm_size(MPI_COMM_WORLD, &numprocs);
 
-  srand48(time(NULL) * (mypid + 1));
+  random_seed = (uint32_t)time(NULL) * ((uint32_t)mypid + 1);
 
   /* read parameters from the command line */
   gridsize = atoi(argv[1]);
@@ -105,18 +116,24 @@ int main(int argc, char *argv[])
   /* initialize the current grid based on the desired percentage of
      living cells specified on the command line */
   live_count = 0;
-#pragma omp parallel for private(i, j) shared(grid, gridsize, curr, prev, myrows) reduction(+ : live_count)
-  for (i = 1; i <= myrows; i++)
-    for (j = 1; j <= gridsize; j++)
-    {
-      if (drand48() < init_pct)
+#pragma omp parallel private(i, j) shared(grid, gridsize, curr, prev, myrows, random_seed) reduction(+ : live_count)
+  {
+    uint32_t thread_seed = random_seed ^ ((uint32_t)omp_get_thread_num() * UINT32_C(0x9e3779b9));
+    uint64_t random_state = ((uint64_t)thread_seed << 16) | UINT64_C(0x330e);
+
+#pragma omp for
+    for (i = 1; i <= myrows; i++)
+      for (j = 1; j <= gridsize; j++)
       {
-        grid[curr][i][j] = 1;
-        live_count++;
+        if (next_random(&random_state) < init_pct)
+        {
+          grid[curr][i][j] = 1;
+          live_count++;
+        }
+        else
+          grid[curr][i][j] = 0;
       }
-      else
-        grid[curr][i][j] = 0;
-    }
+  }
 
   printf("Proc %d: Initial grid has %ld live cells out of %ld\n", mypid,
          live_count, (long)myrows * gridsize);
@@ -211,7 +228,7 @@ int main(int argc, char *argv[])
     for (i = 1; i <= myrows; i++)
       for (j = 1; j <= gridsize; j++)
       {
-        neigh_count =
+        int neigh_count =
             (grid[prev][i - 1][j - 1] + grid[prev][i - 1][j] + grid[prev][i - 1][j + 1] +
              grid[prev][i][j - 1] + grid[prev][i][j + 1] +
              grid[prev][i + 1][j - 1] + grid[prev][i + 1][j] + grid[prev][i + 1][j + 1]);
