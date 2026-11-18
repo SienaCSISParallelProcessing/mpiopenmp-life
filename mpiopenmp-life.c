@@ -36,6 +36,8 @@ int main(int argc, char *argv[])
   MPI_Status status[4];
   FILE *fp;
   int proc_turn;
+  double start_time;
+
 #ifdef USE_FILE
   char filename[FILENAME_MAX];
 #endif
@@ -68,6 +70,8 @@ int main(int argc, char *argv[])
   if (mypid == 0)
     printf("Using grid size %d (%d rows on each of %d procs)\n",
            gridsize, myrows, numprocs);
+
+  start_time = MPI_Wtime();
 
   /* allocate the grids */
   grid[0] = (int **)malloc((myrows + 2) * sizeof(int *));
@@ -118,9 +122,11 @@ int main(int argc, char *argv[])
          live_count, (long)myrows * gridsize);
   MPI_Reduce(&live_count, &global_live, 1, MPI_LONG, MPI_SUM, 0,
              MPI_COMM_WORLD);
-  if (mypid == 0)
+  if (mypid == 0) {
     printf("Global:  Initial grid has %ld live cells out of %ld\n", global_live,
            (long)gridsize * gridsize);
+           printf("Initialization complete at time %f\n", MPI_Wtime() - start_time);
+  }
 
 #ifdef OUTPUT_ALL
   for (proc_turn = 0; proc_turn < numprocs; proc_turn++)
@@ -165,7 +171,7 @@ int main(int argc, char *argv[])
     prev = 1 - prev;
 
     if (mypid == 0)
-      printf("Iteration %d...\n", iter);
+      printf("Iteration %d... starting at time %f\n", iter, MPI_Wtime() - start_time);
 
     /* update the local buffers of off-processor neighbors in prev grid */
     /* send from proc to next highest and next lowest neighbor */
@@ -283,6 +289,9 @@ int main(int argc, char *argv[])
        communication operations will synchronize the processes */
     MPI_Barrier(MPI_COMM_WORLD);
   }
+
+  if (mypid == 0)
+    printf("Simulation complete at time %f\n", MPI_Wtime() - start_time);
 
 #ifdef OUTPUT_END
   for (proc_turn = 0; proc_turn < numprocs; proc_turn++)
