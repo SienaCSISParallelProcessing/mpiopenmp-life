@@ -11,7 +11,7 @@ CFLAGS=-Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include
 LDFLAGS=-L/opt/homebrew/opt/libomp/lib -lomp
 
 mpilife:	$(OFILES)
-	$(CC) -o mpiopenmp-life $(OFILES) $(LDFLAGS)
+	$(CC) $(CFLAGS) -o mpiopenmp-life $(OFILES) $(LDFLAGS)
 
 clean::
 	/bin/rm -f mpiopenmp-life $(OFILES)
